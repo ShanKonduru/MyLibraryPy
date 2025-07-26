@@ -1,0 +1,770 @@
+#%RAML 1.0
+title: School Library System API
+version: v1
+baseUri: http://127.0.0.1:5000
+
+types:
+  User:
+    type: object
+    properties:
+      id: integer
+      username: string
+      role: string
+      token?: string # Only for students
+
+  Book:
+    type: object
+    properties:
+      id: integer
+      title: string
+      author: string
+      isbn: string
+      publication_year: integer
+      available_copies: integer
+      total_copies: integer
+
+  BorrowingRecord:
+    type: object
+    properties:
+      id: integer
+      student_id: integer
+      book_id: integer
+      borrow_date?: string # ISO 8601 format
+      due_date?: string # ISO 8601 format
+      return_date?: string # ISO 8601 format
+      status: string # 'borrowed', 'reserved', 'returned', 'overdue', 'cancelled'
+
+/register:
+  post:
+    displayName: Register User
+    description: Registers a new user (student or librarian). For students, if already registered, returns existing token; otherwise, creates and returns new token. For librarians, registers normally.
+    body:
+      application/json:
+        type: object
+        properties:
+          username:
+            type: string
+            required: true
+          password:
+            type: string
+            required: true
+          role:
+            type: string
+            enum: [student, librarian]
+            required: true
+        example:
+          username: new_student
+          password: securepassword
+          role: student
+    responses:
+      201:
+        description: User registered successfully.
+        body:
+          application/json:
+            type: object
+            properties:
+              message: string
+              user_id: integer
+              token?: string # Only for students
+            example:
+              message: Student registered successfully
+              user_id: 3
+              token: "a1b2c3d4-e5f6-7890-1234-567890abcdef"
+      200:
+        description: Student already registered, returns existing token.
+        body:
+          application/json:
+            type: object
+            properties:
+              message: string
+              user_id: integer
+              role: string
+              token: string
+            example:
+              message: Student already registered
+              user_id: 3
+              role: student
+              token: "a1b2c3d4-e5f6-7890-1234-567890abcdef"
+      400:
+        description: Missing required fields or invalid role.
+        body:
+          application/json:
+            example:
+              message: Missing username, password, or role
+      409:
+        description: Username already exists (for librarians).
+        body:
+          application/json:
+            example:
+              message: Librarian already registered
+
+/login:
+  post:
+    displayName: Login User
+    description: Logs in a user. Returns user ID and role. For students, also returns the allocated token.
+    body:
+      application/json:
+        type: object
+        properties:
+          username:
+            type: string
+            required: true
+          password:
+            type: string
+            required: true
+        example:
+          username: student1
+          password: password
+    responses:
+      200:
+        description: Login successful.
+        body:
+          application/json:
+            type: object
+            properties:
+              message: string
+              user_id: integer
+              role: string
+              token?: string # Only for students
+            example:
+              message: Login successful
+              user_id: 1
+              role: student
+              token: "a1b2c3d4-e5f6-7890-1234-567890abcdef"
+      400:
+        description: Missing username or password.
+        body:
+          application/json:
+            example:
+              message: Missing username or password
+      401:
+        description: Invalid username or password.
+        body:
+          application/json:
+            example:
+              message: Invalid username or password
+
+/books:
+  get:
+    displayName: Get All Books
+    description: Retrieves a list of all books. Can be filtered by title, author, or ISBN via query parameters.
+    headers:
+      X-User-ID?: string # Required for librarians
+      X-Auth-Token?: string # Required for students
+    queryParameters:
+      title?:
+        type: string
+        description: Filter by book title (case-insensitive partial match).
+      author?:
+        type: string
+        description: Filter by book author (case-insensitive partial match).
+      isbn?:
+        type: string
+        description: Filter by book ISBN (exact match).
+    responses:
+      200:
+        description: A list of books.
+        body:
+          application/json:
+            type: array
+            items: Book
+            example:
+              - id: 1
+                title: The Great Gatsby
+                author: F. Scott Fitzgerald
+                isbn: "978-0743273565"
+                publication_year: 1925
+                available_copies: 4
+                total_copies: 5
+              - id: 2
+                title: 1984
+                author: George Orwell
+                isbn: "978-0451524935"
+                publication_year: 1949
+                available_copies: 2
+                total_copies: 3
+      401:
+        description: Authentication required.
+        body:
+          application/json:
+            example:
+              message: Authentication required or invalid credentials
+  post:
+    displayName: Add Book
+    description: Adds a new book to the library (Librarian only).
+    headers:
+      X-User-ID: string # Required for librarians
+      Content-Type: application/json
+    body:
+      application/json:
+        type: object
+        properties:
+          title:
+            type: string
+            required: true
+          author:
+            type: string
+            required: true
+          isbn:
+            type: string
+            required: true
+          publication_year:
+            type: integer
+            required: false
+          total_copies:
+            type: integer
+            required: false
+            default: 0
+        example:
+          title: The Catcher in the Rye
+          author: J.D. Salinger
+          isbn: "978-0316769174"
+          publication_year: 1951
+          total_copies: 3
+    responses:
+      201:
+        description: Book added successfully.
+        body:
+          application/json:
+            type: object
+            properties:
+              message: string
+              book: Book
+            example:
+              message: Book added successfully
+              book:
+                id: 3
+                title: The Catcher in the Rye
+                author: J.D. Salinger
+                isbn: "978-0316769174"
+                publication_year: 1951
+                available_copies: 3
+                total_copies: 3
+      400:
+        description: Missing required book details.
+        body:
+          application/json:
+            example:
+              message: Missing required book details (title, author, isbn)
+      401:
+        description: Authentication required.
+        body:
+          application/json:
+            example:
+              message: Authentication required or invalid credentials
+      403:
+        description: Access denied (librarian role required).
+        body:
+          application/json:
+            example:
+              message: Access denied: librarian role required
+      409:
+        description: Book with this ISBN already exists.
+        body:
+          application/json:
+            example:
+              message: Book with this ISBN already exists
+
+/books/{book_id}:
+  get:
+    displayName: Get Book Details
+    description: Retrieves details for a specific book.
+    headers:
+      X-User-ID?: string # Required for librarians
+      X-Auth-Token?: string # Required for students
+    uriParameters:
+      book_id:
+        type: integer
+        description: The ID of the book.
+    responses:
+      200:
+        description: Book details.
+        body:
+          application/json:
+            type: Book
+            example:
+              id: 1
+              title: The Great Gatsby
+              author: F. Scott Fitzgerald
+              isbn: "978-0743273565"
+              publication_year: 1925
+              available_copies: 4
+              total_copies: 5
+      401:
+        description: Authentication required.
+        body:
+          application/json:
+            example:
+              message: Authentication required or invalid credentials
+      404:
+        description: Book not found.
+        body:
+          application/json:
+            example:
+              message: Book not found
+  put:
+    displayName: Update Book
+    description: Updates details for an existing book (Librarian only).
+    headers:
+      X-User-ID: string # Required for librarians
+      Content-Type: application/json
+    uriParameters:
+      book_id:
+        type: integer
+        description: The ID of the book to update.
+    body:
+      application/json:
+        type: object
+        properties:
+          title?: string
+          author?: string
+          isbn?: string
+          publication_year?: integer
+          total_copies?: integer
+        example:
+          available_copies: 4
+          total_copies: 5
+    responses:
+      200:
+        description: Book updated successfully.
+        body:
+          application/json:
+            type: object
+            properties:
+              message: string
+              book: Book
+            example:
+              message: Book updated successfully
+              book:
+                id: 1
+                title: The Great Gatsby
+                author: F. Scott Fitzgerald
+                isbn: "978-0743273565"
+                publication_year: 1925
+                available_copies: 4
+                total_copies: 5
+      400:
+        description: Cannot reduce total copies below currently borrowed copies.
+        body:
+          application/json:
+            example:
+              message: Cannot reduce total copies below currently borrowed copies
+      401:
+        description: Authentication required.
+        body:
+          application/json:
+            example:
+              message: Authentication required or invalid credentials
+      403:
+        description: Access denied (librarian role required).
+        body:
+          application/json:
+            example:
+              message: Access denied: librarian role required
+      404:
+        description: Book not found.
+        body:
+          application/json:
+            example:
+              message: Book not found
+      409:
+        description: Book with this ISBN already exists.
+        body:
+          application/json:
+            example:
+              message: Book with this ISBN already exists
+  delete:
+    displayName: Delete Book
+    description: Deletes a book from the library (Librarian only). Only allowed if no active borrowing records exist for the book.
+    headers:
+      X-User-ID: string # Required for librarians
+    uriParameters:
+      book_id:
+        type: integer
+        description: The ID of the book to delete.
+    responses:
+      200:
+        description: Book deleted successfully.
+        body:
+          application/json:
+            example:
+              message: Book deleted successfully
+      400:
+        description: Cannot delete book due to active borrowing or reservation records.
+        body:
+          application/json:
+            example:
+              message: Cannot delete book: active borrowing or reservation records exist
+      401:
+        description: Authentication required.
+        body:
+          application/json:
+            example:
+              message: Authentication required or invalid credentials
+      403:
+        description: Access denied (librarian role required).
+        body:
+          application/json:
+            example:
+              message: Access denied: librarian role required
+      404:
+        description: Book not found.
+        body:
+          application/json:
+            example:
+              message: Book not found
+
+/borrow/{book_id}:
+  post:
+    displayName: Borrow Book
+    description: Allows a student to borrow a book. Checks max 3 books per student and availability.
+    headers:
+      X-Auth-Token: string # Required for students
+      Content-Type: application/json
+    uriParameters:
+      book_id:
+        type: integer
+        description: The ID of the book to borrow.
+    responses:
+      201:
+        description: Book borrowed successfully.
+        body:
+          application/json:
+            type: object
+            properties:
+              message: string
+              record: BorrowingRecord
+            example:
+              message: Book borrowed successfully
+              record:
+                id: 1
+                student_id: 1
+                book_id: 1
+                borrow_date: "2025-07-26T15:00:00.000000"
+                due_date: "2025-08-23T23:59:59.999999"
+                return_date: null
+                status: borrowed
+      200:
+        description: Reserved book collected and borrowed successfully.
+        body:
+          application/json:
+            type: object
+            properties:
+              message: string
+              record: BorrowingRecord
+            example:
+              message: Reserved book collected and borrowed successfully
+              record:
+                id: 1
+                student_id: 1
+                book_id: 1
+                borrow_date: "2025-07-26T15:00:00.000000"
+                due_date: "2025-08-23T23:59:59.999999"
+                return_date: null
+                status: borrowed
+      400:
+        description: No copies available, max books borrowed, or already borrowed/reserved.
+        body:
+          application/json:
+            examples:
+              no_copies:
+                message: No copies of this book are currently available
+              max_limit:
+                message: You have reached the maximum limit of 3 borrowed books
+              already_borrowed:
+                message: You have already borrowed this book
+      401:
+        description: Authentication required.
+        body:
+          application/json:
+            example:
+              message: Authentication required or invalid credentials
+      403:
+        description: Access denied (student role required).
+        body:
+          application/json:
+            example:
+              message: Access denied: student role required
+      404:
+        description: Book not found.
+        body:
+          application/json:
+            example:
+              message: Book not found
+
+/reserve/{book_id}:
+  post:
+    displayName: Reserve Book
+    description: Allows a student to reserve a book.
+    headers:
+      X-Auth-Token: string # Required for students
+      Content-Type: application/json
+    uriParameters:
+      book_id:
+        type: integer
+        description: The ID of the book to reserve.
+    responses:
+      201:
+        description: Book reserved successfully.
+        body:
+          application/json:
+            type: object
+            properties:
+              message: string
+              record: BorrowingRecord
+            example:
+              message: Book reserved successfully
+              record:
+                id: 2
+                student_id: 1
+                book_id: 2
+                status: reserved
+      400:
+        description: Already borrowed or reserved.
+        body:
+          application/json:
+            example:
+              message: You have already borrowed or reserved this book
+      401:
+        description: Authentication required.
+        body:
+          application/json:
+            example:
+              message: Authentication required or invalid credentials
+      403:
+        description: Access denied (student role required).
+        body:
+          application/json:
+            example:
+              message: Access denied: student role required
+      404:
+        description: Book not found.
+        body:
+          application/json:
+            example:
+              message: Book not found
+
+/cancel_reservation/{borrow_id}:
+  post:
+    displayName: Cancel Reservation
+    description: Allows a student to cancel their own reservation.
+    headers:
+      X-Auth-Token: string # Required for students
+      Content-Type: application/json
+    uriParameters:
+      borrow_id:
+        type: integer
+        description: The ID of the borrowing record (reservation) to cancel.
+    responses:
+      200:
+        description: Reservation cancelled successfully.
+        body:
+          application/json:
+            type: object
+            properties:
+              message: string
+              record: BorrowingRecord
+            example:
+              message: Reservation cancelled successfully
+              record:
+                id: 2
+                student_id: 1
+                book_id: 2
+                borrow_date: ""
+                due_date: ""
+                return_date: "2025-07-26T15:05:00.000000"
+                status: cancelled
+      400:
+        description: Only reserved books can be cancelled.
+        body:
+          application/json:
+            example:
+              message: Only reserved books can be cancelled
+      401:
+        description: Authentication required.
+        body:
+          application/json:
+            example:
+              message: Authentication required or invalid credentials
+      403:
+        description: Access denied (student role required).
+        body:
+          application/json:
+            example:
+              message: Access denied: student role required
+      404:
+        description: Reservation record not found or does not belong to the student.
+        body:
+          application/json:
+            example:
+              message: Reservation record not found or does not belong to you
+
+/return/{borrow_id}:
+  post:
+    displayName: Return Book
+    description: Allows a librarian to mark a book as returned.
+    headers:
+      X-User-ID: string # Required for librarians
+      Content-Type: application/json
+    uriParameters:
+      borrow_id:
+        type: integer
+        description: The ID of the borrowing record to mark as returned.
+    responses:
+      200:
+        description: Book returned successfully.
+        body:
+          application/json:
+            type: object
+            properties:
+              message: string
+              record: BorrowingRecord
+            example:
+              message: Book returned successfully
+              record:
+                id: 1
+                student_id: 1
+                book_id: 1
+                borrow_date: "2025-07-26T15:00:00.000000"
+                due_date: "2025-08-23T23:59:59.999999"
+                return_date: "2025-07-26T15:10:00.000000"
+                status: returned
+      400:
+        description: Book is not currently borrowed or reserved.
+        body:
+          application/json:
+            example:
+              message: Book is not currently borrowed or reserved
+      401:
+        description: Authentication required.
+        body:
+          application/json:
+            example:
+              message: Authentication required or invalid credentials
+      403:
+        description: Access denied (librarian role required).
+        body:
+          application/json:
+            example:
+              message: Access denied: librarian role required
+      404:
+        description: Borrowing record not found.
+        body:
+          application/json:
+            example:
+              message: Borrowing record not found
+      500:
+        description: Associated book not found (internal server error).
+        body:
+          application/json:
+            example:
+              message: Associated book not found
+
+/my_books:
+  get:
+    displayName: Get My Books
+    description: Retrieves all books currently borrowed or reserved by the logged-in student.
+    headers:
+      X-Auth-Token: string # Required for students
+    responses:
+      200:
+        description: A list of borrowing records for the student.
+        body:
+          application/json:
+            type: array
+            items:
+              type: object
+              properties:
+                id: integer
+                student_id: integer
+                book_id: integer
+                borrow_date?: string
+                due_date?: string
+                return_date?: string
+                status: string
+                book_details: Book
+            example:
+              - id: 1
+                student_id: 1
+                book_id: 1
+                borrow_date: "2025-07-26T15:00:00.000000"
+                due_date: "2025-08-23T23:59:59.999999"
+                return_date: null
+                status: borrowed
+                book_details:
+                  id: 1
+                  title: The Great Gatsby
+                  author: F. Scott Fitzgerald
+                  isbn: "978-0743273565"
+                  publication_year: 1925
+                  available_copies: 4
+                  total_copies: 5
+      401:
+        description: Authentication required.
+        body:
+          application/json:
+            example:
+              message: Authentication required or invalid credentials
+      403:
+        description: Access denied (student role required).
+        body:
+          application/json:
+            example:
+              message: Access denied: student role required
+
+/borrowed_books:
+  get:
+    displayName: Get All Borrowed/Reserved Books (Librarian)
+    description: Retrieves all currently borrowed or reserved books (Librarian only).
+    headers:
+      X-User-ID: string # Required for librarians
+    responses:
+      200:
+        description: A list of all active borrowing/reservation records.
+        body:
+          application/json:
+            type: array
+            items:
+              type: object
+              properties:
+                id: integer
+                student_id: integer
+                book_id: integer
+                borrow_date?: string
+                due_date?: string
+                return_date?: string
+                status: string
+                book_details: Book
+                student_details: User
+            example:
+              - id: 1
+                student_id: 1
+                book_id: 1
+                borrow_date: "2025-07-26T15:00:00.000000"
+                due_date: "2025-08-23T23:59:59.999999"
+                return_date: null
+                status: borrowed
+                book_details:
+                  id: 1
+                  title: The Great Gatsby
+                  author: F. Scott Fitzgerald
+                  isbn: "978-0743273565"
+                  publication_year: 1925
+                  available_copies: 4
+                  total_copies: 5
+                student_details:
+                  id: 1
+                  username: student1
+                  role: student
+      401:
+        description: Authentication required.
+        body:
+          application/json:
+            example:
+              message: Authentication required or invalid credentials
+      403:
+        description: Access denied (librarian role required).
+        body:
+          application/json:
+            example:
+              message: Access denied: librarian role required
